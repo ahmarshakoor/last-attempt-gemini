@@ -1,0 +1,8 @@
+{
+  "name": "LAST ATTEMPT — Dr. Ahmar Shakoor",
+  "description": "Comprehensive NRE & medical examination review companion with high-yield clinical pearls, question banks, labs, and interactive study tools.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role and access status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "avatar_url": { "type": "string" },
+        "auth_provider_id": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "access_status": { "type": "string", "enum": ["active", "pending", "revoked", "expired"] },
+        "access_expires_at": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "last_sign_in_at": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "access_status", "created_at"]
+    },
+    "ExtensionRequest": {
+      "title": "ExtensionRequest",
+      "description": "Access extension request submitted by a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_email": { "type": "string" },
+        "user_name": { "type": "string" },
+        "current_expiry": { "type": "string" },
+        "requested_duration": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "declined"] },
+        "created_at": { "type": "string" },
+        "reviewed_at": { "type": "string" },
+        "reviewed_by": { "type": "string" }
+      },
+      "required": ["id", "user_id", "requested_duration", "status", "created_at"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Broadcast notification for examinees",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "message": { "type": "string" },
+        "is_active": { "type": "boolean" },
+        "created_at": { "type": "string" },
+        "created_by": { "type": "string" }
+      },
+      "required": ["id", "title", "category", "message", "created_at"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Collection of registered examinees and administrators"
+    },
+    "/extension_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/ExtensionRequest" },
+      "description": "Collection of access extension requests"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "Collection of broadcast notifications"
+    }
+  }
+}
