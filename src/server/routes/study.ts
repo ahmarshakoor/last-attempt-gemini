@@ -135,37 +135,9 @@ function deliverStudy(req: Request, res: Response) {
   }
 }
 
-function deliverStudyAppShell(req: Request, res: Response) {
-  const sourceIndex = path.resolve(process.cwd(), 'index.html');
-  const builtIndex = path.resolve(process.cwd(), 'dist', 'index.html');
-  const candidates = process.env.NODE_ENV === 'production'
-    ? [builtIndex, sourceIndex]
-    : [sourceIndex, builtIndex];
-  const shellPath = candidates.find((candidate) => fs.existsSync(candidate));
-
-  // Fall back to the original study document if the app shell is unavailable.
-  if (!shellPath) {
-    deliverStudy(req, res);
-    return;
-  }
-
-  const sessionId = (req.query?.token as string) || req.cookies?.last_attempt_session;
-  if (sessionId && !isFirebaseIdToken(sessionId)) {
-    setSessionCookie(res, req, sessionId);
-  }
-
-  res.setHeader('Cache-Control', 'private, no-store');
-  res.sendFile(shellPath, (err) => {
-    if (err) {
-      console.error('Error delivering Study app shell:', err);
-      if (!res.headersSent) res.status(500).send('Error delivering the protected Study app shell');
-    }
-  });
-}
-
 // All /study routes require active study access
 studyRouter.use(requireActiveStudyAccess);
 
-studyRouter.get('/', deliverStudyAppShell);
+studyRouter.get('/', deliverStudy);
 studyRouter.get('/index.html', deliverStudy);
 studyRouter.get('/*', deliverStudy);

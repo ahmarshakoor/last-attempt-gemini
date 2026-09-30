@@ -1,23 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { StudySystemWrapper } from './components/StudySystemWrapper';
+import { LoginGateway } from './components/LoginGateway';
+import { AdminPortal } from './components/AdminPortal';
 import { ShieldAlert } from 'lucide-react';
-
-const LoginGateway = React.lazy(() =>
-  import('./components/LoginGateway').then((module) => ({ default: module.LoginGateway })),
-);
-const AdminPortal = React.lazy(() =>
-  import('./components/AdminPortal').then((module) => ({ default: module.AdminPortal })),
-);
-
-const RouteChunkLoading: React.FC<{ label: string }> = ({ label }) => (
-  <div className="min-h-screen flex items-center justify-center bg-[#fdfbf7]">
-    <div className="flex flex-col items-center gap-3">
-      <div className="w-10 h-10 border-3 border-[#830e0d] border-t-transparent rounded-full animate-spin" />
-      <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider">{label}</span>
-    </div>
-  </div>
-);
 
 const MainContent: React.FC = () => {
   const { user, isLoading } = useAuth();
@@ -36,10 +21,6 @@ const MainContent: React.FC = () => {
     window.history.pushState({}, '', path);
     setCurrentPath(path);
   };
-
-  if (currentPath === '/study' || currentPath === '/study/') {
-    return <StudySystemWrapper user={user} isLoading={isLoading} />;
-  }
 
   if (isLoading) {
     return (
@@ -96,19 +77,11 @@ const MainContent: React.FC = () => {
       );
     }
 
-    return (
-      <React.Suspense fallback={<RouteChunkLoading label="Loading admin portal…" />}>
-        <AdminPortal onNavigateGateway={() => navigateTo('/')} />
-      </React.Suspense>
-    );
+    return <AdminPortal onNavigateGateway={() => navigateTo('/')} />;
   }
 
   // Default Gateway
-  return (
-    <React.Suspense fallback={<RouteChunkLoading label="Loading gateway…" />}>
-      <LoginGateway onNavigateAdmin={() => navigateTo('/admin/access')} />
-    </React.Suspense>
-  );
+  return <LoginGateway onNavigateAdmin={() => navigateTo('/admin/access')} />;
 };
 
 export const App: React.FC = () => {
