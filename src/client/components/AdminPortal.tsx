@@ -37,6 +37,264 @@ interface Props {
   onNavigateGateway: () => void;
 }
 
+
+const adminPortalStyles = `
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap');
+
+.admin-portal{
+  --ap-maroon:#7f0f0f;
+  --ap-maroon-press:#690b0b;
+  --ap-blue:#2563eb;
+  --ap-sel:#1c1917;
+  --ap-bg:#f6f4ef;
+  --ap-card:#fff;
+  --ap-ink:#1c1917;
+  --ap-muted:#78716c;
+  --ap-line:#e6e2da;
+  --ap-chip:#efece6;
+  --ap-ok:#15803d;
+  --ap-ok-bg:#e8f6ee;
+  --ap-ok-line:#bfe6d0;
+  --ap-warn:#8a5a00;
+  --ap-warn-bg:#fff4dc;
+  --ap-warn-line:#f1d9a0;
+  --ap-bad:#c0143c;
+  --ap-bad-bg:#fdecef;
+  --ap-bad-line:#f3c2cc;
+  font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif !important;
+  background:var(--ap-bg) !important;
+  color:var(--ap-ink);
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+.admin-portal *{box-sizing:border-box}
+.admin-portal button,.admin-portal input,.admin-portal textarea,.admin-portal select{font-family:inherit}
+.admin-portal .admin-header{
+  background:#fff !important;
+  border:0 !important;
+  box-shadow:0 1px 14px rgba(28,25,23,.07) !important;
+  padding:12px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px)) !important;
+  min-height:66px;
+}
+.admin-portal .admin-header > div{
+  max-width:1400px !important;
+  height:42px !important;
+}
+.admin-portal .admin-header button:first-child{
+  height:42px !important;
+  padding:0 6px !important;
+  color:var(--ap-muted) !important;
+  font-size:14px !important;
+  border-radius:999px !important;
+}
+.admin-portal .admin-header button:first-child:hover{color:var(--ap-ink)!important;background:var(--ap-chip)!important}
+.admin-portal .admin-header .font-serif-title,
+.admin-portal .admin-header span.font-serif-title{
+  font-family:"Source Serif 4","Iowan Old Style",Georgia,"Times New Roman",serif !important;
+  font-size:21px !important;
+  letter-spacing:-.01em;
+}
+.admin-portal .admin-header .bg-blue-600{
+  background:var(--ap-sel)!important;
+  border-radius:8px!important;
+}
+.admin-portal .admin-header a{
+  height:42px!important;
+  padding:0 18px!important;
+  border-radius:999px!important;
+  background:var(--ap-maroon)!important;
+  font-size:14px!important;
+  box-shadow:none!important;
+}
+.admin-portal .admin-header a:hover{background:var(--ap-maroon-press)!important}
+.admin-portal .admin-header .text-blue-600{color:var(--ap-blue)!important}
+
+.admin-portal .admin-main{
+  width:100%;
+  max-width:1400px!important;
+  padding:18px max(16px,env(safe-area-inset-right,0px)) 90px max(16px,env(safe-area-inset-left,0px))!important;
+  gap:0!important;
+}
+.admin-portal .admin-tabs{
+  position:sticky;
+  top:0;
+  z-index:30;
+  background:var(--ap-bg);
+  border-bottom:1px solid var(--ap-line)!important;
+  padding:10px 0!important;
+  display:flex!important;
+  gap:8px!important;
+  overflow-x:auto;
+  flex-wrap:nowrap!important;
+  scrollbar-width:none;
+}
+.admin-portal .admin-tabs::-webkit-scrollbar{display:none}
+.admin-portal .admin-tabs button{
+  flex:none;
+  height:44px!important;
+  padding:0 18px 0 15px!important;
+  border-radius:999px!important;
+  border:1.5px solid var(--ap-line)!important;
+  background:#fff!important;
+  color:var(--ap-ink)!important;
+  font-weight:600!important;
+  font-size:14px!important;
+  box-shadow:none!important;
+}
+.admin-portal .admin-tabs button:hover{border-color:var(--ap-sel)!important}
+.admin-portal .admin-tabs button[class*="bg-stone-900"]{
+  background:var(--ap-sel)!important;
+  border-color:var(--ap-sel)!important;
+  color:#fff!important;
+}
+.admin-portal .admin-tabs button .bg-amber-500{background:#d97706!important}
+
+.admin-portal .admin-users-toolbar{
+  background:#fff!important;
+  border:1px solid var(--ap-line)!important;
+  border-radius:22px!important;
+  padding:10px!important;
+  box-shadow:none!important;
+}
+.admin-portal .admin-users-toolbar input{
+  min-height:50px!important;
+  padding:0 18px 0 46px!important;
+  border-radius:999px!important;
+  border:1.5px solid var(--ap-line)!important;
+  font-size:16px!important;
+}
+.admin-portal .admin-users-toolbar button{
+  border-radius:999px!important;
+}
+.admin-portal .admin-users-toolbar button[class*="bg-stone-800"]{
+  background:var(--ap-sel)!important;
+}
+.admin-portal .admin-users-toolbar button[class*="bg-stone-100"]{
+  background:var(--ap-chip)!important;
+  color:var(--ap-ink)!important;
+}
+
+.admin-portal .admin-table-card{
+  background:#fff!important;
+  border:1px solid var(--ap-line)!important;
+  border-radius:24px!important;
+  box-shadow:none!important;
+}
+.admin-portal table{border-collapse:collapse!important}
+.admin-portal table thead{background:#fff!important}
+.admin-portal table th{
+  padding:20px 18px!important;
+  background:#fff!important;
+  color:var(--ap-muted)!important;
+  border-bottom:1px solid var(--ap-line)!important;
+  font-size:11.5px!important;
+  letter-spacing:.07em!important;
+}
+.admin-portal table td{
+  padding:14px 18px!important;
+  border-bottom:1px solid var(--ap-line)!important;
+  font-size:14px!important;
+}
+.admin-portal table tbody tr:hover{background:#faf9f6!important}
+
+.admin-portal .admin-card{
+  background:#fff!important;
+  border:1px solid var(--ap-line)!important;
+  border-radius:24px!important;
+  box-shadow:none!important;
+  padding:18px!important;
+}
+.admin-portal .admin-card h3{
+  font-family:"Source Serif 4","Iowan Old Style",Georgia,"Times New Roman",serif!important;
+  font-size:21px!important;
+  line-height:1.2;
+}
+.admin-portal .admin-card input:not([type="radio"]):not([type="checkbox"]),
+.admin-portal .admin-card textarea{
+  width:100%!important;
+  min-height:50px!important;
+  padding:0 18px!important;
+  border-radius:999px!important;
+  border:1.5px solid var(--ap-line)!important;
+  background:#fff!important;
+  font-size:16px!important;
+}
+.admin-portal .admin-card textarea{min-height:110px!important;border-radius:22px!important;padding:14px 18px!important}
+.admin-portal .admin-card input:focus,.admin-portal .admin-card textarea:focus{
+  border-color:var(--ap-sel)!important;
+  outline:3px solid rgba(37,99,235,.2)!important;
+  box-shadow:none!important;
+}
+.admin-portal .admin-card label{font-size:13.5px!important}
+.admin-portal .admin-card > div > label:not([class*="flex"]){letter-spacing:0!important;text-transform:none!important}
+.admin-portal .admin-card button{
+  border-radius:999px!important;
+  min-height:44px;
+}
+.admin-portal .admin-card button[class*="bg-stone-900"],
+.admin-portal .admin-card button[class*="bg-[#830e0d]"]{
+  background:var(--ap-maroon)!important;
+  border-color:var(--ap-maroon)!important;
+}
+.admin-portal .admin-card button[class*="bg-stone-900"]:hover,
+.admin-portal .admin-card button[class*="bg-[#830e0d]"]:hover{background:var(--ap-maroon-press)!important}
+
+.admin-portal .admin-gateway-card{max-width:720px!important}
+.admin-portal [class*="bg-emerald-50"]{background:var(--ap-ok-bg)!important}
+.admin-portal [class*="text-emerald-700"]{color:var(--ap-ok)!important}
+.admin-portal [class*="border-emerald-200"]{border-color:var(--ap-ok-line)!important}
+.admin-portal [class*="bg-amber-50"]{background:var(--ap-warn-bg)!important}
+.admin-portal [class*="text-amber-700"],.admin-portal [class*="text-amber-800"]{color:var(--ap-warn)!important}
+.admin-portal [class*="bg-rose-50"]{background:var(--ap-bad-bg)!important}
+.admin-portal [class*="text-rose-700"],.admin-portal [class*="text-rose-800"]{color:var(--ap-bad)!important}
+
+.admin-portal .fixed.inset-0{
+  background:rgba(28,25,23,.45)!important;
+  backdrop-filter:blur(2px);
+}
+.admin-portal .fixed.inset-0 > form,
+.admin-portal .fixed.inset-0 > div{
+  border-radius:28px!important;
+  border:1px solid var(--ap-line)!important;
+  box-shadow:0 12px 40px rgba(28,25,23,.16)!important;
+}
+.admin-portal .fixed.inset-0 input,
+.admin-portal .fixed.inset-0 textarea{
+  border-radius:999px!important;
+  min-height:50px!important;
+  font-size:16px!important;
+}
+.admin-portal .fixed.inset-0 textarea{border-radius:22px!important;padding:14px 18px!important}
+
+.admin-portal .text-stone-900{color:var(--ap-ink)!important}
+.admin-portal .text-stone-800{color:#292524!important}
+.admin-portal .text-stone-700{color:#44403c!important}
+.admin-portal .text-stone-600{color:#57534e!important}
+.admin-portal .text-stone-500,.admin-portal .text-stone-400{color:var(--ap-muted)!important}
+.admin-portal .border-stone-200,.admin-portal .border-stone-100{border-color:var(--ap-line)!important}
+.admin-portal .bg-stone-50{background:#faf9f6!important}
+.admin-portal .bg-stone-100{background:var(--ap-chip)!important}
+
+@media (max-width:760px){
+  .admin-portal .admin-header{padding-left:10px!important;padding-right:10px!important}
+  .admin-portal .admin-header .font-serif-title{font-size:18px!important}
+  .admin-portal .admin-header a{padding:0 14px!important}
+  .admin-portal .admin-header a span{display:none}
+  .admin-portal .admin-main{padding:12px 10px 80px!important}
+  .admin-portal .admin-tabs{margin:0 -10px;padding-left:10px!important;padding-right:10px!important}
+  .admin-portal .admin-tabs button{height:44px!important;font-size:14px!important}
+  .admin-portal .admin-users-toolbar{border-radius:22px!important}
+  .admin-portal .admin-table-card{border-radius:24px!important}
+  .admin-portal .admin-table-card .overflow-x-auto{overflow-x:auto}
+  .admin-portal .admin-card{border-radius:24px!important;padding:16px!important}
+  .admin-portal .admin-card .grid{grid-template-columns:1fr!important}
+}
+@media (min-width:761px){
+  .admin-portal .admin-tabs{flex-wrap:wrap!important;overflow:visible}
+  .admin-portal .admin-main{padding-left:24px!important;padding-right:24px!important}
+}
+`;
+
 export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
   const { user: currentAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState<'users' | 'policy' | 'extensions' | 'gateway' | 'notifications'>('users');
@@ -384,9 +642,11 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
   });
 
   return (
-    <div className="min-h-screen bg-[#f7f5f0] flex flex-col justify-between">
+    <>
+      <style>{adminPortalStyles}</style>
+    <div className="admin-portal min-h-screen flex flex-col justify-between">
       {/* Admin Header */}
-      <header className="border-b border-stone-200 bg-white sticky top-0 z-40 shadow-xs">
+      <header className="admin-header border-b border-stone-200 bg-white sticky top-0 z-40 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
@@ -424,7 +684,7 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+      <main className="admin-main flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8 space-y-6">
         {/* Messages */}
         {actionError && (
           <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-center gap-2 animate-in fade-in">
@@ -440,7 +700,7 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
         )}
 
         {/* Tab Navigation */}
-        <div className="flex flex-wrap gap-2 border-b border-stone-200 pb-3">
+        <div className="admin-tabs flex flex-wrap gap-2 border-b border-stone-200 pb-3">
           <button
             onClick={() => setActiveTab('users')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
@@ -511,7 +771,7 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
         {activeTab === 'users' && (
           <div className="space-y-4">
             {/* Search and Filters */}
-            <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-white p-4 rounded-2xl border border-stone-200 shadow-2xs">
+            <div className="admin-users-toolbar flex flex-col sm:flex-row gap-3 items-center justify-between bg-white p-4 rounded-2xl border border-stone-200 shadow-2xs">
               <div className="relative w-full sm:w-80">
                 <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -548,7 +808,7 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
             </div>
 
             {/* Users Table */}
-            <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+            <div className="admin-table-card bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-stone-50 text-stone-500 uppercase tracking-wider font-semibold border-b border-stone-200">
@@ -743,7 +1003,7 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
 
         {/* ================= TAB 2: NEW USER POLICY ================= */}
         {activeTab === 'policy' && (
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-200 shadow-xs max-w-2xl space-y-6">
+          <div className="admin-card bg-white rounded-3xl p-6 sm:p-8 border border-stone-200 shadow-xs max-w-2xl space-y-6">
             <div>
               <h3 className="text-lg font-bold text-stone-900 font-serif-title">
                 New User Registration Access Policy
@@ -920,7 +1180,7 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
 
         {/* ================= TAB 4: GATEWAY INFO BOX ================= */}
         {activeTab === 'gateway' && (
-          <form onSubmit={handleSaveGatewayInfo} className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-200 shadow-xs max-w-2xl space-y-5">
+          <form onSubmit={handleSaveGatewayInfo} className="admin-card admin-gateway-card bg-white rounded-3xl p-6 sm:p-8 border border-stone-200 shadow-xs max-w-2xl space-y-5">
             <div className="flex items-center justify-between border-b border-stone-100 pb-4">
               <div>
                 <h3 className="text-lg font-bold text-stone-900 font-serif-title">
@@ -1241,5 +1501,6 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
         )}
       </main>
     </div>
+    </>
   );
 };
