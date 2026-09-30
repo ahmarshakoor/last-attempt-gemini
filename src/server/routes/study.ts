@@ -119,12 +119,33 @@ function deliverStudy(req: Request, res: Response) {
   }
 
   try {
-    const rawHtml = fs.readFileSync(studyFilePath, 'utf-8');
+    let rawHtml = fs.readFileSync(studyFilePath, 'utf-8');
 
     // Also refresh cookie for this session if token exists
     const sessionId = (req.query?.token as string) || req.cookies?.last_attempt_session;
     if (sessionId) {
       setSessionCookie(res, req, sessionId);
+    }
+
+    if (req.user) {
+      const u = req.user;
+      const isOwner = u.email?.toLowerCase() === 'drahmarshakoor@gmail.com' || u.role === 'admin';
+      const expiryText = u.access_expires_at
+        ? `Expires ${new Date(u.access_expires_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+        : 'Lifetime Access';
+      const statusText = u.access_status ? (u.access_status.charAt(0).toUpperCase() + u.access_status.slice(1)) : 'Active';
+      const sessionAttrs = `name="${u.name.replace(/"/g, '&quot;')}" admin="${isOwner}" status="${statusText}" expiry="${expiryText}"${u.avatar_url ? ` avatar="${u.avatar_url}"` : ''}${u.auth_provider_id === 'google' ? ' is-google' : ''}`;
+      
+      if (rawHtml.includes('<la-session-card id="study-session-card"')) {
+        rawHtml = rawHtml.replace('<la-session-card id="study-session-card"', `<la-session-card id="study-session-card" ${sessionAttrs}`);
+      }
+
+      const controls = generateInjectedControls(req.user);
+      if (rawHtml.includes('</body>')) {
+        rawHtml = rawHtml.replace('</body>', `${controls}</body>`);
+      } else {
+        rawHtml += controls;
+      }
     }
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
