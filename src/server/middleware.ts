@@ -48,41 +48,7 @@ export async function requireActiveStudyAccess(req: Request, res: Response, next
         res.status(401).json({ error: 'Authentication required to access study materials.' });
         return;
       }
-
-      // If query param token was not provided, but the request accepts HTML,
-      // provide a client-side localStorage bridge to prevent iframe cookie loss
-      if (!req.query?.token && req.accepts('html')) {
-        res.status(200).send(`<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Connecting to LAST ATTEMPT Study Companion...</title>
-  </head>
-  <body style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#fbf9f5;display:flex;align-items:center;justify-content:center;height:100vh;">
-    <div style="text-align:center;padding:28px 36px;background:#ffffff;border:1px solid #e7e5e4;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,0.06);max-width:360px;">
-      <div style="width:40px;height:40px;border:3px solid #830e0d;border-top-color:transparent;border-radius:50%;margin:0 auto 16px;animation:spin 0.8s linear infinite;"></div>
-      <div style="font-weight:800;color:#1c1917;font-size:16px;margin-bottom:6px;">Connecting to Study Portal...</div>
-      <div style="color:#78716c;font-size:12px;">Validating active session credentials</div>
-    </div>
-    <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
-    <script>
-      (function() {
-        try {
-          var token = localStorage.getItem('last_attempt_token');
-          if (token) {
-            window.location.replace('/study?token=' + encodeURIComponent(token));
-            return;
-          }
-        } catch(e) {}
-        window.location.replace('/?error=unauthenticated');
-      })();
-    </script>
-  </body>
-</html>`);
-        return;
-      }
-
-      res.redirect('/?error=unauthenticated');
+      res.redirect('/?session=expired');
       return;
     }
 

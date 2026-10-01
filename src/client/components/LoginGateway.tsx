@@ -20,8 +20,7 @@ import {
 } from 'lucide-react';
 import { NotificationsDrawer } from './NotificationsDrawer';
 import { ExtensionRequestModal } from './ExtensionRequestModal';
-import { authFetch, getStoredAppSessionToken } from '../utils/api';
-import { auth } from '../firebase';
+import { authFetch } from '../utils/api';
 
 interface Props {
   onNavigateAdmin: () => void;
@@ -134,27 +133,55 @@ export const LoginGateway: React.FC<Props> = ({ onNavigateAdmin }) => {
     }
   }, []);
 
-  // Fetch gateway info
+  // Fetch gateway info with retry and fallback
   useEffect(() => {
-    fetch('/api/gateway/info')
-      .then(res => res.json())
-      .then(data => {
-        if (data.info) setGatewayInfo(data.info);
-      })
-      .catch(err => console.error('Failed to load gateway info', err));
+    let active = true;
+    const fetchInfo = async () => {
+      try {
+        const res = await fetch('/api/gateway/info');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active && data.info) {
+          setGatewayInfo(data.info);
+        }
+      } catch (err) {
+        // Retry once after brief delay if connection was interrupted
+        setTimeout(async () => {
+          if (!active) return;
+          try {
+            const retryRes = await fetch('/api/gateway/info');
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              if (active && retryData.info) setGatewayInfo(retryData.info);
+            }
+          } catch {
+            // Silently fall back to built-in default gateway info
+          }
+        }, 1200);
+      }
+    };
+    fetchInfo();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Initial unread notifications check
   useEffect(() => {
+    let active = true;
     if (user) {
       authFetch('/api/notifications')
-        .then(res => res.json())
+        .then(res => res.ok ? res.json() : null)
         .then(data => {
+          if (!active || !data) return;
           const unread = (data.notifications || []).filter((n: any) => !n.is_read).length;
           setUnreadNotifs(unread);
         })
-        .catch(console.error);
+        .catch(() => {});
     }
+    return () => {
+      active = false;
+    };
   }, [user]);
 
   const handleGoogleSignIn = async () => {
@@ -196,15 +223,8 @@ export const LoginGateway: React.FC<Props> = ({ onNavigateAdmin }) => {
     }
   };
 
-  const handleEnterStudy = async () => {
-    const token = auth.currentUser
-      ? await auth.currentUser.getIdToken()
-      : getStoredAppSessionToken();
-    if (token) {
-      window.location.href = `/study?token=${encodeURIComponent(token)}`;
-    } else {
-      window.location.href = '/study';
-    }
+  const handleEnterStudy = () => {
+    window.location.assign('/study');
   };
 
   const isExpired = user?.access_expires_at

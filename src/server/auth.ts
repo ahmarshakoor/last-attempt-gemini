@@ -192,13 +192,12 @@ export async function createSession(userId: string, res?: Response, req?: Reques
 }
 
 export function getSessionIdFromReq(req: Request): string | null {
+  const cookieToken = req.cookies?.[SESSION_COOKIE_NAME];
   const authorization = req.headers.authorization;
   const bearer = typeof authorization === 'string' ? authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() : null;
-  const queryToken = typeof req.query?.token === 'string' ? req.query.token.trim() : null;
   const sessionHeader = req.headers['x-session-token'];
   const headerToken = typeof sessionHeader === 'string' ? sessionHeader.trim() : null;
-  const cookieToken = req.cookies?.[SESSION_COOKIE_NAME];
-  return bearer || queryToken || headerToken || cookieToken || null;
+  return cookieToken || bearer || headerToken || null;
 }
 
 export async function getUserFromSession(req: Request): Promise<User | null> {
@@ -216,8 +215,7 @@ export async function getUserFromSession(req: Request): Promise<User | null> {
        WHERE s.id = ? AND s.expires_at > ?`,
       [credential, now],
     );
-    // Legacy app sessions remain available for local password accounts only.
-    if (sessionRow && String(sessionRow.auth_provider_id).toLowerCase() !== 'google') {
+    if (sessionRow) {
       return formatSafeUser(sessionRow);
     }
     return null;
@@ -241,11 +239,10 @@ export async function getUserFromSession(req: Request): Promise<User | null> {
 export async function destroySession(req: Request, res?: Response): Promise<void> {
   const authorization = req.headers.authorization;
   const bearer = typeof authorization === 'string' ? authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() : null;
-  const queryToken = typeof req.query?.token === 'string' ? req.query.token.trim() : null;
   const sessionHeader = req.headers['x-session-token'];
   const headerToken = typeof sessionHeader === 'string' ? sessionHeader.trim() : null;
   const cookieToken = req.cookies?.[SESSION_COOKIE_NAME];
-  const candidates = [...new Set([cookieToken, bearer, queryToken, headerToken].filter((value): value is string => !!value))];
+  const candidates = [...new Set([cookieToken, bearer, headerToken].filter((value): value is string => !!value))];
 
   if (candidates.some((value) => !isFirebaseIdToken(value))) {
     const db = await getDb();

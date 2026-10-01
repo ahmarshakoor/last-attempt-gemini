@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 import { fileURLToPath } from 'url';
 import { requireActiveStudyAccess } from '../middleware.js';
-import { isFirebaseIdToken, setSessionCookie } from '../auth.js';
 import { User } from '../../types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,86 +24,153 @@ function getStudyFilePath(): string | null {
   return null;
 }
 
-function generateInjectedControls(user: User): string {
-  const expiryText = user.access_expires_at
-    ? `Active until ${new Date(user.access_expires_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
-    : 'Lifetime Access';
+let cachedStudy: { head: string; tail: string; headGz?: Buffer; tailGz?: Buffer } | null = null;
 
-  const adminButton = user.role === 'admin'
-    ? `<a href="/admin/access" style="display:inline-flex;align-items:center;gap:5px;background:#3b82f6;color:#ffffff;text-decoration:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;transition:opacity 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-        Admin Portal
-       </a>`
+function removeScriptContaining(html: string, marker: string): string {
+  const m = html.indexOf(marker);
+  if (m < 0) return html;
+  const start = html.lastIndexOf('<script', m);
+  const end = html.indexOf('</script>', m);
+  if (start < 0 || end < 0) return html;
+  return html.slice(0, start) + html.slice(end + 9);
+}
+
+function loadStudy() {
+  if (cachedStudy) return cachedStudy;
+  const p = getStudyFilePath();
+  if (!p) return null;
+  let html = fs.readFileSync(p, 'utf-8');
+  // Remove old client-side session card + its script if present in study HTML.
+  html = html.replace(/<la-session-card[^>]*><\/la-session-card>/g, '');
+  html = removeScriptContaining(html, '<la-session-card> : Last Attempt subscription');
+  html = removeScriptContaining(html, 'firebasejs/10.8.0/firebase-app.js');
+  const i = html.lastIndexOf('</body>');
+  const head = i === -1 ? html : html.slice(0, i);
+  const tail = i === -1 ? '' : html.slice(i);
+  try {
+    const headGz = zlib.gzipSync(Buffer.from(head, 'utf-8'), { level: 9 });
+    const tailGz = zlib.gzipSync(Buffer.from(tail, 'utf-8'), { level: 9 });
+    cachedStudy = { head, tail, headGz, tailGz };
+  } catch (err) {
+    cachedStudy = { head, tail };
+  }
+  return cachedStudy;
+}
+
+function esc(v: string): string {
+  return v
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function subscriptionDetails(user: User) {
+  if (user.role === 'admin' || !user.access_expires_at) {
+    return { status: 'Active', remaining: 'No expiry', warning: '' };
+  }
+  const days = Math.ceil((new Date(user.access_expires_at).getTime() - Date.now()) / 86400000);
+  return {
+    status: 'Active',
+    remaining: days <= 0 ? 'Expired' : days + ' day' + (days === 1 ? '' : 's') + ' remaining',
+    warning:
+      days > 0 && days <= 7
+        ? 'Your access expires in ' + days + ' day' + (days === 1 ? '' : 's') + '. Contact an administrator if you need more time.'
+        : '',
+  };
+}
+
+function buildSessionCard(user: User): string {
+  const s = subscriptionDetails(user);
+  const warning = s.warning
+    ? `<div id="la-expiry-warning" role="status"><div class="la-expiry-copy"><strong>Access ending soon</strong><span>${esc(s.warning)}</span></div>${user.role !== 'admin' ? '<button id="la-request-extension" type="button">Request Extension</button>' : ''}</div>`
     : '';
-
   return `
-<!-- LAST ATTEMPT Injected Session Control Bar -->
-<div id="la-session-bar" style="position:fixed;top:10px;right:16px;z-index:9999999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,0.18);border-radius:12px;background:#18181b;color:#f4f4f5;border:1px solid #3f3f46;display:flex;align-items:center;padding:6px 12px;gap:12px;backdrop-filter:blur(8px);">
-  <div style="display:flex;align-items:center;gap:8px;">
-    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;"></span>
-    <div style="line-height:1.2;">
-      <div style="font-size:12px;font-weight:700;color:#fafafa;">${user.name.replace(/</g, '&lt;')}</div>
-      <div style="font-size:10px;color:#a1a1aa;">${expiryText}</div>
+<section id="la-auth-bar" class="la-session-card-root" role="region" aria-label="LAST ATTEMPT subscription and session controls">
+  <div class="la-panel">
+    <div class="la-heading"><span class="la-eyebrow">LAST ATTEMPT subscription</span><strong>${esc(user.name || user.email || 'Authenticated user')}</strong><small>Active session</small></div>
+    <div class="la-metrics">
+      <div><span>Status</span><strong>${s.status}</strong></div>
+      <div><span>Access remaining</span><strong>${esc(s.remaining)}</strong></div>
+    </div>
+    ${warning}
+    <div class="la-actions">
+      ${user.role === 'admin' ? '<a class="la-link" href="/admin/access">Admin Portal</a>' : ''}
+      <a class="la-link" href="/">Back</a>
     </div>
   </div>
-  <div style="display:flex;align-items:center;gap:6px;">
-    <a href="/" style="display:inline-flex;align-items:center;gap:4px;background:#27272a;color:#e4e4e7;text-decoration:none;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid #3f3f46;transition:all 0.15s;" onmouseover="this.style.background='#3f3f46'" onmouseout="this.style.background='#27272a'">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 18-6-6 6-6"/></svg>
-      Gateway
-    </a>
-    ${adminButton}
-    <button onclick="handleLastAttemptSignOut()" style="background:#dc2626;color:#ffffff;border:none;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-      Sign Out
-    </button>
-  </div>
-  <button id="la-bar-toggle" onclick="toggleLastAttemptBar()" title="Minimize" style="background:transparent;border:none;color:#a1a1aa;cursor:pointer;padding:2px;font-size:12px;line-height:1;margin-left:4px;">
-    ✕
-  </button>
-</div>
+</section>
+<style>
+#la-auth-bar, la-session-card#laSession, #laSession{max-width:1100px;margin:28px auto 32px;padding:0 16px;font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;box-sizing:border-box}
+#la-auth-bar.la-hidden{display:none}
+.la-panel{display:grid;grid-template-columns:minmax(220px,1.15fr) minmax(180px,.85fr);gap:16px 24px;align-items:center;padding:20px 24px;border:1px solid var(--border-color);border-radius:18px;background:var(--card-bg);color:var(--text-main);box-shadow:var(--shadow-md);box-sizing:border-box}
+.la-heading strong,.la-heading small{display:block}
+.la-heading strong{color:var(--text-main);font-size:1.08rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.la-heading small{color:var(--text-muted);margin-top:2px;font-size:.7rem}
+.la-eyebrow{display:block;color:var(--primary-color);font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.12em;margin-bottom:3px}
+.la-metrics{display:flex;justify-content:flex-end;align-items:center;gap:24px;text-align:right}
+.la-metrics span{display:block;color:var(--text-muted);font-size:.7rem}
+.la-metrics strong{display:block;color:var(--text-main);font-size:.95rem}
+.la-actions{grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:4px}
+.la-link{display:inline-flex;align-items:center;justify-content:center;min-height:36px;border:1px solid var(--border-color);border-radius:999px;padding:7px 22px;background:var(--card-bg);color:var(--primary-color);text-decoration:none;font:600 .8rem/1.2 Inter,sans-serif;white-space:nowrap;cursor:pointer;transition:all .15s ease;box-sizing:border-box}
+.la-link:hover{background:var(--bg-color);color:var(--primary-light);border-color:var(--primary-color)}
+#la-expiry-warning{grid-column:1/-1;padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px 12px;justify-content:space-between;align-items:center;border:1px solid #f59e0b;border-radius:12px;background:#fffbeb;color:#78350f;font:500 .78rem Inter,sans-serif;box-sizing:border-box}
+.la-expiry-copy{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
+#la-expiry-warning strong{color:#92400e}
+#la-request-extension{border:1px solid #b45309;border-radius:999px;padding:6px 13px;background:#f59e0b;color:#451a03;font:700 .72rem Inter,sans-serif;cursor:pointer;white-space:nowrap;box-sizing:border-box}
 
-<div id="la-bar-minimized" onclick="toggleLastAttemptBar()" style="display:none;position:fixed;top:10px;right:16px;z-index:9999999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#18181b;color:#f4f4f5;border:1px solid #3f3f46;padding:6px 10px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.2);align-items:center;gap:6px;">
-  <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;"></span>
-  <span>Access Controls</span>
-</div>
+/* Fallback selectors for la-session-card */
+div#notesView > la-session-card#laSession, la-session-card#laSession, la-session-card{display:block;max-width:1100px;margin:24px auto 32px;box-sizing:border-box}
+div#notesView > la-session-card#laSession .action-buttons, la-session-card .action-buttons{display:flex!important;align-items:center!important;justify-content:center!important;gap:12px!important;flex-wrap:wrap!important;margin-top:14px!important}
+div#notesView > la-session-card#laSession .btn-action, la-session-card .btn-action{flex:0 0 auto!important;width:auto!important;min-width:100px!important;max-width:160px!important;min-height:36px!important;padding:7px 20px!important;font-size:.8rem!important;text-align:center!important}
 
+@media (max-width:640px){
+ #la-auth-bar, la-session-card#laSession, #laSession{margin-top:20px;margin-bottom:24px;padding:0 12px}
+ .la-panel{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:16px 14px;border-radius:16px}
+ .la-heading strong{font-size:.92rem}
+ .la-metrics{display:flex;justify-content:space-around;align-items:center;text-align:center;gap:10px;padding:8px 12px;border:1px solid var(--border-color);border-radius:12px;background:rgba(0,0,0,.02);box-sizing:border-box}
+ .la-metrics > div{flex:1 1 0}
+ .la-metrics span{font-size:.66rem;color:var(--text-muted);margin-bottom:2px}
+ .la-metrics strong{font-size:.84rem;color:var(--text-main)}
+ .la-actions{width:100%;display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px}
+ .la-link{flex:0 0 auto;width:auto;min-width:100px;max-width:160px;min-height:34px;padding:6px 16px;font-size:.74rem;text-align:center}
+ #la-expiry-warning{padding:8px 12px;font-size:.72rem;justify-content:center;text-align:center}
+ .la-expiry-copy{justify-content:center;text-align:center}
+ #la-request-extension{flex:0 0 auto;padding:5px 12px;font-size:.7rem}
+
+ div#notesView > la-session-card#laSession .action-buttons, la-session-card .action-buttons{flex-direction:row!important;justify-content:center!important;gap:10px!important}
+ div#notesView > la-session-card#laSession .btn-action, la-session-card .btn-action{flex:0 0 auto!important;width:auto!important;min-width:100px!important;max-width:160px!important;min-height:34px!important;padding:6px 16px!important;font-size:.74rem!important}
+ div#notesView > la-session-card#laSession .stats-grid, la-session-card .stats-grid{grid-template-columns:1fr 1fr!important;gap:8px!important}
+ div#notesView > la-session-card#laSession .stat-card, la-session-card .stat-card{padding:8px 12px!important;border-radius:12px!important}
+}
+body > div[role="alertdialog"]{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.78);backdrop-filter:blur(8px);font-family:Inter,sans-serif}
+.la-expiry-card{width:min(100%,380px);padding:28px;border-radius:20px;background:#1e293b;color:#f8fafc;text-align:center}
+</style>
 <script>
-(function() {
-  try {
-    var params = new URLSearchParams(window.location.search);
-    var urlToken = params.get('token');
-    if (urlToken) {
-      localStorage.setItem('last_attempt_token', urlToken);
-    }
-  } catch(e) {}
+(function(){
+  var ch='last-attempt-auth-sync', bc=('BroadcastChannel' in window)?new BroadcastChannel(ch):null, shown=false;
+  function showExpired(){ if(shown) return; shown=true; var o=document.createElement('div'); o.setAttribute('role','alertdialog'); o.innerHTML='<div class="la-expiry-card"><strong>Your session expired</strong><p style="margin:9px 0 0;font-size:.82rem">Redirecting to sign in...</p></div>'; document.body.appendChild(o); setTimeout(function(){ window.location.replace('/?session=expired'); },1300); }
+  function check(){ fetch('/api/auth/session',{credentials:'include',cache:'no-store'}).then(function(r){ if(r.status===401||r.status===403) showExpired(); }).catch(function(){}); }
+  setInterval(check,60000);
+  document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible') check(); });
+  var btn=document.getElementById('la-request-extension');
+  if(btn) btn.addEventListener('click',function(){ btn.disabled=true; btn.textContent='Sending...';
+    fetch('/api/gateway/extension-request',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({requested_duration:'1 Month',reason:'Extension request from study session'})})
+      .then(function(r){ if(!r.ok) throw new Error('x'); btn.textContent='Request sent'; })
+      .catch(function(){ btn.disabled=false; btn.textContent='Try again'; }); });
+  var bar=document.getElementById('la-auth-bar'), qv=document.getElementById('quizView');
+  function sync(){ var home=!qv||qv.style.display==='none'||qv.style.display===''; if(bar) bar.classList.toggle('la-hidden',!home); }
+  if(qv) new MutationObserver(sync).observe(qv,{attributes:true,attributeFilter:['style']}); sync();
+  if(bc) bc.addEventListener('message',function(e){ if(e.data&&e.data.type==='logout') window.location.replace('/'); });
+  window.addEventListener('storage',function(e){ if(e.key==='last-attempt-auth-state'&&e.newValue==='logged-out') window.location.replace('/'); });
 })();
-
-function handleLastAttemptSignOut() {
-  if (confirm('Are you sure you want to sign out?')) {
-    try { localStorage.removeItem('last_attempt_token'); } catch(e){}
-    fetch('/api/auth/logout', { method: 'POST' })
-      .then(function() { window.location.href = '/'; })
-      .catch(function() { window.location.href = '/'; });
-  }
-}
-
-function toggleLastAttemptBar() {
-  var bar = document.getElementById('la-session-bar');
-  var mini = document.getElementById('la-bar-minimized');
-  if (bar.style.display === 'none') {
-    bar.style.display = 'flex';
-    mini.style.display = 'none';
-  } else {
-    bar.style.display = 'none';
-    mini.style.display = 'flex';
-  }
-}
-</script>
-`;
+</script>`;
 }
 
 function deliverStudy(req: Request, res: Response) {
-  const studyFilePath = getStudyFilePath();
-  if (!studyFilePath) {
+  const study = loadStudy();
+  if (!study) {
     res.status(404).send(`
       <!DOCTYPE html>
       <html>
@@ -118,24 +185,32 @@ function deliverStudy(req: Request, res: Response) {
     return;
   }
 
-  try {
-    const rawHtml = fs.readFileSync(studyFilePath, 'utf-8');
+  const cardHtml = buildSessionCard(req.user!);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'private, no-cache');
 
-    // Also refresh cookie for this session if token exists
-    const sessionId = (req.query?.token as string) || req.cookies?.last_attempt_session;
-    if (sessionId && !isFirebaseIdToken(sessionId)) {
-      setSessionCookie(res, req, sessionId);
+  const acceptEncoding = req.headers['accept-encoding'] || '';
+  if (typeof acceptEncoding === 'string' && acceptEncoding.includes('gzip')) {
+    try {
+      if (study.headGz && study.tailGz) {
+        const cardGz = zlib.gzipSync(Buffer.from(cardHtml, 'utf-8'), { level: 9 });
+        res.setHeader('Content-Encoding', 'gzip');
+        res.send(Buffer.concat([study.headGz, cardGz, study.tailGz]));
+        return;
+      }
+      const full = study.head + cardHtml + study.tail;
+      const gz = zlib.gzipSync(Buffer.from(full, 'utf-8'), { level: 4 });
+      res.setHeader('Content-Encoding', 'gzip');
+      res.send(gz);
+      return;
+    } catch (e) {
+      console.warn('Gzip delivery fallback:', e);
     }
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(rawHtml);
-  } catch (err) {
-    console.error('Error delivering study HTML:', err);
-    res.status(500).send('Error delivering protected study content');
   }
+
+  res.send(study.head + cardHtml + study.tail);
 }
 
-// All /study routes require active study access
 studyRouter.use(requireActiveStudyAccess);
 
 studyRouter.get('/', deliverStudy);

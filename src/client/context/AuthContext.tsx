@@ -1,14 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
 import { User as AppUser } from '../../types';
-import {
-  auth,
-  authPersistenceReady,
-  loginWithGooglePopup,
-  logoutFirebase,
-  syncUserToFirestore,
-} from '../firebase';
-import { getStoredAppSessionToken } from '../utils/api';
+import { auth, loginWithGooglePopup, logoutFirebase, syncUserToFirestore } from '../firebase';
 
 interface AuthContextType {
   user: AppUser | null;
@@ -21,269 +14,203 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const FIREBASE_SIGNOUT_MARKER = 'last_attempt_firebase_signout';
-const LEGACY_SESSION_KEY = 'last_attempt_token';
 
-function safeRemoveStoredToken(): void {
+const bc = typeof window !== 'undefined' && 'BroadcastChannel' in window
+  ? new BroadcastChannel('last-attempt-auth-sync')
+  : null;
+
+function setAuthState(state: 'logged-in' | 'logged-out') {
   try {
-    localStorage.removeItem(LEGACY_SESSION_KEY);
-  } catch {
-    // Authentication remains governed by Firebase even when browser storage is unavailable.
+    localStorage.setItem('last-attempt-auth-state', state);
+  } catch {}
+}
+
+function notifyLogout() {
+  setAuthState('logged-out');
+  if (bc) {
+    try {
+      bc.postMessage({ type: 'logout' });
+    } catch {}
   }
-}
-
-function clearSignoutMarkerCookie(): void {
-  if (typeof document === 'undefined') return;
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  document.cookie = `${FIREBASE_SIGNOUT_MARKER}=; Max-Age=0; Path=/; SameSite=Lax${secure}`;
-}
-
-function consumeSignoutMarkerCookie(): boolean {
-  if (typeof document === 'undefined') return false;
-  const marker = document.cookie
-    .split(';')
-    .some((cookie) => cookie.trim() === `${FIREBASE_SIGNOUT_MARKER}=1`);
-  if (marker) clearSignoutMarkerCookie();
-  return marker;
-}
-
-function attachStatus(error: Error, status: number): Error & { status: number } {
-  return Object.assign(error, { status });
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const pendingFirebaseProfiles = useRef(new Map<string, Promise<AppUser>>());
 
-  const fetchLocalAccount = useCallback(async (): Promise<AppUser | null> => {
-    const token = getStoredAppSessionToken();
-    const headers = new Headers();
-    if (token) headers.set('Authorization', `Bearer ${token}`);
-
-    const response = await fetch('/api/auth/me', {
-      headers,
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) safeRemoveStoredToken();
-      return null;
-    }
-
-    const data = await response.json();
-    if (!data.user && token) safeRemoveStoredToken();
-    return (data.user as AppUser | null) ?? null;
-  }, []);
-
-  const resolveFirebaseAccount = useCallback((firebaseUser: FirebaseUser): Promise<AppUser> => {
-    const inFlight = pendingFirebaseProfiles.current.get(firebaseUser.uid);
-    if (inFlight) return inFlight;
-
-    const request = (async () => {
-      // The Firebase SDK owns the persistent refresh credential; never copy its ID token
-      // into the app's legacy SQLite-session localStorage key.
-      safeRemoveStoredToken();
-
-      const callGoogleProfile = async (forceRefresh: boolean) => {
-        const idToken = await firebaseUser.getIdToken(forceRefresh);
-        return fetch('/api/auth/google', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            Authorization: `Bearer ${idToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: '{}',
-        });
-      };
-
-      let response = await callGoogleProfile(false);
-      if (response.status === 401) response = await callGoogleProfile(true);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw attachStatus(
-          new Error(data.error || 'Could not restore the Google-authenticated account.'),
-          response.status,
-        );
-      }
-      if (!data.user) throw new Error('The verified account has no application profile.');
-
-      const appUser = data.user as AppUser;
-      // Mirror only the profile returned by the verified backend; role/access values
-      // are never inferred from unverified client claims.
-      await syncUserToFirestore({
-        id: firebaseUser.uid,
-        name: appUser.name,
-        email: appUser.email,
-        avatar_url: appUser.avatar_url ?? firebaseUser.photoURL ?? null,
-        auth_provider_id: appUser.auth_provider_id,
-        role: appUser.role,
-        access_status: appUser.access_status,
-        access_expires_at: appUser.access_expires_at,
-        created_at: appUser.created_at,
-        last_sign_in_at: appUser.last_sign_in_at ?? new Date().toISOString(),
-      });
-      return appUser;
-    })();
-
-    const tracked = request.finally(() => {
-      if (pendingFirebaseProfiles.current.get(firebaseUser.uid) === tracked) {
-        pendingFirebaseProfiles.current.delete(firebaseUser.uid);
-      }
-    });
-    pendingFirebaseProfiles.current.set(firebaseUser.uid, tracked);
-    return tracked;
-  }, []);
-
+  // Sync logout across tabs
   useEffect(() => {
-    let mounted = true;
-    let forceFirebaseSignout = consumeSignoutMarkerCookie();
-    let unsubscribe: (() => void) | undefined;
-
-    const startAuthListener = async () => {
-      try {
-        await authPersistenceReady;
-        if (!mounted) return;
-
-        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-          if (!mounted) return;
-          setIsLoading(true);
-
-          try {
-            if (forceFirebaseSignout) {
-              forceFirebaseSignout = false;
-              safeRemoveStoredToken();
-              if (firebaseUser) await logoutFirebase();
-              if (mounted) setUser(null);
-              return;
-            }
-
-            if (firebaseUser) {
-              safeRemoveStoredToken();
-              const appUser = await resolveFirebaseAccount(firebaseUser);
-              if (mounted) setUser(appUser);
-            } else {
-              const localUser = await fetchLocalAccount();
-              if (mounted) setUser(localUser);
-            }
-          } catch (error) {
-            console.error('Could not restore the application account:', error);
-            const status = (error as { status?: number })?.status;
-            if (firebaseUser && status === 401) {
-              safeRemoveStoredToken();
-              await logoutFirebase();
-            }
-            if (mounted) setUser(null);
-          } finally {
-            if (mounted) setIsLoading(false);
-          }
-        });
-      } catch (error) {
-        console.error('Firebase local persistence could not be initialized:', error);
-        if (mounted) {
-          setUser(null);
-          setIsLoading(false);
+    const handleBc = (e: MessageEvent) => {
+      if (e.data && e.data.type === 'logout') {
+        setUser(null);
+        if (window.location.pathname.startsWith('/admin') || window.location.pathname.startsWith('/study')) {
+          window.location.replace('/');
         }
       }
     };
-
-    void startAuthListener();
-    return () => {
-      mounted = false;
-      unsubscribe?.();
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'last-attempt-auth-state' && e.newValue === 'logged-out') {
+        setUser(null);
+        if (window.location.pathname.startsWith('/admin') || window.location.pathname.startsWith('/study')) {
+          window.location.replace('/');
+        }
+      }
     };
-  }, [fetchLocalAccount, resolveFirebaseAccount]);
+    if (bc) bc.addEventListener('message', handleBc);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      if (bc) bc.removeEventListener('message', handleBc);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    // Step 3c: On startup, first call GET /api/auth/me (credentials: include).
+    // If it returns a user, setUser and setIsLoading(false) IMMEDIATELY!
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active) return;
+        if (data?.user) {
+          setUser(data.user);
+          setIsLoading(false);
+          setAuthState('logged-in');
+        }
+      })
+      .catch((err) => console.warn('Initial session check error:', err));
+
+    // Listen to Firebase auth changes in the background
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!active) return;
+      if (firebaseUser) {
+        try {
+          const idToken = await firebaseUser.getIdToken();
+          const res = await fetch('/api/auth/google', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              Authorization: `Bearer ${idToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: '{}',
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (active && data.user) {
+              setUser(data.user);
+              setAuthState('logged-in');
+              // Fire-and-forget sync to Firestore (do not block UI render)
+              syncUserToFirestore({
+                id: firebaseUser.uid,
+                name: data.user.name,
+                email: data.user.email,
+                avatar_url: data.user.avatar_url || firebaseUser.photoURL || null,
+                role: data.user.role,
+                access_status: data.user.access_status,
+                access_expires_at: data.user.access_expires_at,
+              }).catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.warn('Background Firebase session refresh error:', err);
+        } finally {
+          if (active) setIsLoading(false);
+        }
+      } else {
+        // If not logged in with Firebase, finish loading if we haven't already
+        if (active) setIsLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   const loginWithGoogle = async () => {
-    await authPersistenceReady;
     const firebaseUser = await loginWithGooglePopup();
-    const appUser = await resolveFirebaseAccount(firebaseUser);
-    setUser(appUser);
+    if (!firebaseUser) throw new Error('No user returned from Google popup');
+    const idToken = await firebaseUser.getIdToken();
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to authenticate Google account');
+    setUser(data.user);
+    setAuthState('logged-in');
+
+    // Fire-and-forget Firestore sync
+    syncUserToFirestore({
+      id: firebaseUser.uid,
+      name: data.user.name,
+      email: data.user.email,
+      avatar_url: data.user.avatar_url || firebaseUser.photoURL || null,
+      role: data.user.role,
+      access_status: data.user.access_status,
+      access_expires_at: data.user.access_expires_at,
+    }).catch(() => {});
   };
 
   const login = async (email: string, password: string) => {
-    const response = await fetch('/api/auth/login', {
+    const res = await fetch('/api/auth/login', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Failed to sign in');
-
-    if (data.token) {
-      try {
-        localStorage.setItem(LEGACY_SESSION_KEY, data.token);
-      } catch {
-        // The server cookie can still support this legacy password session.
-      }
-    }
-    await logoutFirebase();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to sign in');
     setUser(data.user);
+    setAuthState('logged-in');
   };
 
   const register = async (name: string, email: string, password: string) => {
-    const response = await fetch('/api/auth/register', {
+    const res = await fetch('/api/auth/register', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, email, password }),
     });
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Failed to create account');
-
-    if (data.token) {
-      try {
-        localStorage.setItem(LEGACY_SESSION_KEY, data.token);
-      } catch {
-        // The server cookie can still support this legacy password session.
-      }
-    }
-    await logoutFirebase();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to create account');
     setUser(data.user);
+    setAuthState('logged-in');
   };
 
   const logout = async () => {
     try {
-      const firebaseUser = auth.currentUser;
-      const token = firebaseUser
-        ? await firebaseUser.getIdToken().catch(() => null)
-        : getStoredAppSessionToken();
-      const headers = new Headers();
-      if (token) headers.set('Authorization', `Bearer ${token}`);
-
       await fetch('/api/auth/logout', {
         method: 'POST',
-        headers,
         credentials: 'include',
       });
-    } catch (error) {
-      console.error('Application sign-out request failed:', error);
+    } catch (err) {
+      console.error('Sign-out error:', err);
     } finally {
-      clearSignoutMarkerCookie();
-      safeRemoveStoredToken();
+      notifyLogout();
       await logoutFirebase();
       setUser(null);
-      window.location.href = '/';
+      window.location.replace('/');
     }
   };
 
   const refreshUser = async () => {
-    setIsLoading(true);
     try {
-      const firebaseUser = auth.currentUser;
-      const nextUser = firebaseUser
-        ? await resolveFirebaseAccount(firebaseUser)
-        : await fetchLocalAccount();
-      setUser(nextUser);
-    } catch (error) {
-      console.error('Could not refresh the application account:', error);
-      setUser(null);
-    } finally {
-      setIsLoading(false);
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+      }
+    } catch (err) {
+      console.error('Refresh user error:', err);
     }
   };
 

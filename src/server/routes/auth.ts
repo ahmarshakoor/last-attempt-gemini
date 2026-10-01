@@ -11,9 +11,14 @@ import {
   verifyFirebaseIdToken,
   FirebaseTokenVerificationUnavailable,
 } from '../auth.js';
+import { requireAuthenticatedUser } from '../middleware.js';
 import { NewUserPolicy } from '../../types.js';
 
 export const authRouter = Router();
+
+authRouter.get('/session', requireAuthenticatedUser, (_req: Request, res: Response) => {
+  res.status(204).end();
+});
 
 authRouter.get('/me', async (req: Request, res: Response) => {
   try {
@@ -205,13 +210,14 @@ authRouter.post('/google', async (req: Request, res: Response) => {
       );
     }
 
-    // A Google ID token, not a temporary SQLite session, authenticates this request.
+    // Destroy any old session, then create an authenticated session cookie
     await destroySession(req, res);
     const userRow = queryOne(db, 'SELECT * FROM users WHERE firebase_uid = ?', [claims.sub]);
     if (!userRow) {
       res.status(500).json({ error: 'Verified Google account profile could not be loaded.' });
       return;
     }
+    await createSession(userRow.id, res, req);
     res.json({ success: true, user: formatSafeUser(userRow) });
   } catch (err) {
     console.error('Google authentication error:', err);

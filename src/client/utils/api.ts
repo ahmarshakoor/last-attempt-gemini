@@ -1,48 +1,20 @@
-import { auth } from '../firebase';
-
-const LEGACY_SESSION_KEY = 'last_attempt_token';
-
-/** Returns only legacy opaque app-session IDs; Firebase ID tokens belong to Firebase Auth. */
-export function getStoredAppSessionToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const token = localStorage.getItem(LEGACY_SESSION_KEY);
-    if (token && token.split('.').length === 3) {
-      // Remove Firebase ID tokens left by older builds. Firebase Auth now restores its
-      // own persistent user and supplies fresh ID tokens directly from its SDK.
-      localStorage.removeItem(LEGACY_SESSION_KEY);
-      return null;
-    }
-    return token;
-  } catch {
-    return null;
-  }
-}
-
 export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const firebaseUser = auth.currentUser;
-  let token = firebaseUser
-    ? await firebaseUser.getIdToken().catch(() => null)
-    : getStoredAppSessionToken();
+  try {
+    const res = await fetch(url, {
+      ...options,
+      credentials: 'include',
+    });
 
-  const headers = new Headers(options.headers || {});
-  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
-
-  const request = () => fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include',
-  });
-
-  let response = await request();
-  if (response.status === 401 && firebaseUser) {
-    try {
-      token = await firebaseUser.getIdToken(true);
-      headers.set('Authorization', `Bearer ${token}`);
-      response = await request();
-    } catch (error) {
-      console.warn('Could not refresh Firebase ID token for authenticated request:', error);
+    if (res.status === 401 && typeof window !== 'undefined') {
+      window.location.replace('/?session=expired');
     }
+
+    return res;
+  } catch (err) {
+    // Return a safe 503 response on network drops or dev server reload
+    return new Response(JSON.stringify({ error: 'Network unavailable. Please retry.' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
-  return response;
 }

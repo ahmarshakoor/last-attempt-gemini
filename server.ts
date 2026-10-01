@@ -26,7 +26,14 @@ async function startServer() {
   await getDb();
 
   // Basic middleware
-  app.use(compression());
+  app.use(
+    compression({
+      filter: (req: express.Request, res: express.Response) => {
+        if (req.path && req.path.startsWith('/study')) return false;
+        return compression.filter(req, res);
+      },
+    })
+  );
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());

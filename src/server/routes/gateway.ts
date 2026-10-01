@@ -42,12 +42,10 @@ gatewayRouter.get('/info', async (req: Request, res: Response) => {
 gatewayRouter.post('/extension-request', requireAuthenticatedUser, async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const { requested_duration, reason } = req.body;
-
-    if (!requested_duration || typeof requested_duration !== 'string') {
-      res.status(400).json({ error: 'Please specify the requested duration (e.g. 1 Month, 3 Months).' });
-      return;
-    }
+    const { requested_duration, reason } = req.body || {};
+    const duration = (typeof requested_duration === 'string' && requested_duration.trim())
+      ? requested_duration.trim()
+      : '1 Month';
 
     const db = await getDb();
 
@@ -70,7 +68,7 @@ gatewayRouter.post('/extension-request', requireAuthenticatedUser, async (req: R
       db,
       `INSERT INTO extension_requests (id, user_id, current_expiry, requested_duration, reason, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-      [reqId, user.id, user.access_expires_at, requested_duration, reason ? String(reason).trim() : null, nowIso]
+      [reqId, user.id, user.access_expires_at, duration, reason ? String(reason).trim() : null, nowIso]
     );
 
     res.status(201).json({ success: true, message: 'Extension request submitted successfully.' });

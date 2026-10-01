@@ -135,41 +135,38 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
         const res = await authFetch('/api/admin/users');
         if (res.ok) {
           const data = await res.json();
-          (data.users || []).forEach((u: User) => {
-            if (u.email && !u.email.endsWith('@example.com') && u.email !== 'admin@lastattempt.com') {
-              emailMap.set(u.email.toLowerCase(), u);
-            }
-          });
+          const list = (data.users || []).filter(
+            (u: User) => u.email && !u.email.endsWith('@example.com') && u.email !== 'admin@lastattempt.com'
+          );
+          list.forEach((u: User) => emailMap.set(u.email.toLowerCase(), u));
+          setUsers(list);
         }
       } catch (err) {
         console.warn('Backend users fetch error:', err);
       }
 
-      // 2. Fetch directly from cloud Firestore (ensures all Google logged-in users are loaded)
-      try {
-        const firestoreUsers = await getFirestoreUsers();
-        firestoreUsers.forEach((u: User) => {
-          if (u.email && !u.email.endsWith('@example.com') && u.email !== 'admin@lastattempt.com') {
-            const existing = emailMap.get(u.email.toLowerCase());
-            if (!existing) {
-              emailMap.set(u.email.toLowerCase(), u);
-            } else {
-              emailMap.set(u.email.toLowerCase(), { ...existing, ...u });
-            }
-          }
-        });
-      } catch (err) {
-        console.warn('Firestore users fetch error:', err);
-      }
-
-      const combined = Array.from(emailMap.values());
-      combined.sort((a, b) => {
-        if (a.email.toLowerCase() === 'drahmarshakoor@gmail.com') return -1;
-        if (b.email.toLowerCase() === 'drahmarshakoor@gmail.com') return 1;
-        return (new Date(b.created_at).getTime() || 0) - (new Date(a.created_at).getTime() || 0);
-      });
-
-      setUsers(combined);
+      // 2. Background Firestore merge (non-blocking)
+      getFirestoreUsers()
+        .then((firestoreUsers) => {
+          if (!firestoreUsers || firestoreUsers.length === 0) return;
+          setUsers((prev) => {
+            const map = new Map<string, User>();
+            prev.forEach((u) => map.set(u.email.toLowerCase(), u));
+            firestoreUsers.forEach((u: User) => {
+              if (u.email && !u.email.endsWith('@example.com') && u.email !== 'admin@lastattempt.com') {
+                const existing = map.get(u.email.toLowerCase());
+                if (!existing) map.set(u.email.toLowerCase(), u);
+                else map.set(u.email.toLowerCase(), { ...existing, ...u });
+              }
+            });
+            return Array.from(map.values()).sort((a, b) => {
+              if (a.email.toLowerCase() === 'drahmarshakoor@gmail.com') return -1;
+              if (b.email.toLowerCase() === 'drahmarshakoor@gmail.com') return 1;
+              return (new Date(b.created_at).getTime() || 0) - (new Date(a.created_at).getTime() || 0);
+            });
+          });
+        })
+        .catch((err) => console.warn('Firestore users fetch error:', err));
     } catch (e: any) {
       showError(e.message || 'Error fetching users');
     } finally {
@@ -236,11 +233,13 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
   };
 
   useEffect(() => {
-    fetchUsers();
-    fetchPolicy();
-    fetchExtensions();
-    fetchGatewayInfo();
-    fetchAdminNotifications();
+    Promise.all([
+      fetchUsers(),
+      fetchPolicy(),
+      fetchExtensions(),
+      fetchGatewayInfo(),
+      fetchAdminNotifications(),
+    ]).catch((err) => console.warn('Admin lists load error:', err));
   }, []);
 
   // Update Access
@@ -670,7 +669,7 @@ export const AdminPortal: React.FC<Props> = ({ onNavigateGateway }) => {
             <dl className="ap-info"><dt>User ID</dt><dd>{u.id}</dd><dt>Sign-in method</dt><dd>{userExtra.sign_in_method || userExtra.provider || userExtra.auth_provider || '—'}</dd><dt>Registered</dt><dd>{u.created_at ? new Date(u.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</dd><dt>Last sign-in</dt><dd>{u.last_sign_in_at ? timeAgo(new Date(u.last_sign_in_at)) : 'Never'}</dd><dt>Access</dt><dd>{u.access_status === 'pending' ? 'No access yet' : u.access_status === 'revoked' ? 'Access revoked' : !u.access_expires_at ? 'No expiry' : `${isExpired ? 'Expired' : 'Expires'} ${new Date(u.access_expires_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`}</dd><dt>Days remaining</dt><dd>{u.role === 'admin' || !u.access_expires_at ? '—' : isExpired ? '0' : daysRemaining}</dd></dl>
             {u.role === 'admin' ? <div className="ap-protect">Admin accounts are protected and can’t be changed here.</div> : <><div className="ap-access-section"><span className="ap-label">{u.access_status === 'pending' ? 'Approve access for' : u.access_status === 'revoked' || isExpired ? 'Restore access for' : 'Set access for'}</span><div className="ap-row"><button type="button" className="ap-btn" aria-pressed={expiryChoice === 'grant:30'} onClick={() => { setExpiryChoice('grant:30'); setExpiryDate(''); }}>1 month</button><button type="button" className="ap-btn" aria-pressed={expiryChoice === 'grant:90'} onClick={() => { setExpiryChoice('grant:90'); setExpiryDate(''); }}>3 months</button><button type="button" className="ap-btn" aria-pressed={expiryChoice === 'lifetime'} onClick={() => { setExpiryChoice('lifetime'); setExpiryDate(''); }}>No expiry</button></div><input className="ap-input ap-date" type="date" min={new Date().toISOString().slice(0, 10)} aria-label="Or choose a custom expiry date" value={expiryDate} onChange={(e) => { setExpiryDate(e.target.value); setExpiryChoice(e.target.value ? 'custom' : null); }} />
               {u.access_status === 'active' && <><span className="ap-label ap-extend-label">Or extend current access</span><div className="ap-row"><button type="button" className="ap-btn" aria-pressed={expiryChoice === 'extend:30'} onClick={() => { setExpiryChoice('extend:30'); setExpiryDate(''); }}>+1 month</button><button type="button" className="ap-btn" aria-pressed={expiryChoice === 'extend:90'} onClick={() => { setExpiryChoice('extend:90'); setExpiryDate(''); }}>+3 months</button></div></>}
-              <p className="ap-pick-info" aria-live="polite">{expiryChoice === 'lifetime' ? 'Access will have no expiry.' : expiryChoice === 'custom' && expiryDate ? `New expiry: ${new Date(`${expiryDate}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : expiryChoice ? `New expiry period selected: ${expiryChoice.split(':')[1]} days.` : 'Choose a period, then save.'}</p><button type="button" className="ap-btn solid ap-save-access" disabled={!expiryChoice} onClick={saveSelectedAccess}>Save changes</button></div>{u.access_status !== 'revoked' && <button type="button" className="ap-btn danger ap-revoke" disabled={u.role === 'admin'} onClick={() => handleUpdateAccess(u.id, 'revoked')}>Revoke access</button>}</>}
+              <p className="ap-pick-info" aria-live="polite">{expiryChoice === 'lifetime' ? 'Access will have no expiry.' : expiryChoice === 'custom' && expiryDate ? `New expiry: ${new Date(`${expiryDate}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : expiryChoice ? `New expiry period selected: ${expiryChoice.split(':')[1]} days.` : 'Choose a period, then save.'}</p><button type="button" className="ap-btn solid ap-save-access" disabled={!expiryChoice} onClick={saveSelectedAccess}>Save changes</button></div>{u.access_status !== 'revoked' && <button type="button" className="ap-btn danger ap-revoke" onClick={() => handleUpdateAccess(u.id, 'revoked')}>Revoke access</button>}</>}
             <button type="button" className="ap-btn ap-close-sheet" onClick={() => setSelectedUserForExpiry(null)}>Close</button></section></div>;
         })()}
       </main>
